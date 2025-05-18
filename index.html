@@ -3,73 +3,290 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Playlist Player</title>
+    <title>YT Playlist Player</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" integrity="sha512-Kc323vGBEqzTmouAECnVceyQqyqdsSiqLQISBL29aUW4U/M7pSPA/gEUZQqv1cwx4OnYxTxve5UMg5GT6L4JJg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        #player-container { display: none; }
-        .video-player-active #video-list { display: none; }
-        .video-player-active #player-container { display: block; }
-        .progress-container { background: #4b5563; height: 8px; cursor: pointer; position: relative; border-radius: 4px; }
-        .progress-bar { height: 100%; background: #10b981; transition: width 0.1s; border-radius: 4px; }
-        .progress-container:hover .progress-bar { opacity: 0.8; }
-        .seek-tooltip { display: none; position: absolute; bottom: 20px; background: #1f2937; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
-        .progress-container:hover .seek-tooltip { display: block; }
-        .speed-menu { position: relative; }
-        .speed-menu-items { display: none; position: absolute; bottom: 100%; right: 0; background: #1f2937; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
-        .speed-menu:hover .speed-menu-items { display: block; }
-        .control-button { transition: background 0.2s, transform 0.1s; }
-        .control-button:hover { transform: scale(1.05); }
-        .time-display { font-family: monospace; }
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --bg: #0f172a;
+            --bg-light: #1e293b;
+            --text: #f8fafc;
+            --text-secondary: #94a3b8;
+        }
+        
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+        }
+        
+        #player-container { 
+            display: none;
+            transition: all 0.3s ease;
+        }
+        
+        .video-player-active #video-list { 
+            display: none; 
+        }
+        
+        .video-player-active #player-container { 
+            display: block; 
+        }
+        
+        .progress-container {
+            background: #334155;
+            height: 6px;
+            cursor: pointer;
+            position: relative;
+            border-radius: 3px;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: var(--primary);
+            border-radius: 3px;
+        }
+        
+        .progress-buffer {
+            height: 100%;
+            background: #475569;
+            position: absolute;
+            top: 0;
+            left: 0;
+            border-radius: 3px;
+        }
+        
+        .video-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .video-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+        
+        .video-thumbnail {
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+        }
+        
+        .video-thumbnail img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .video-duration {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .control-btn {
+            transition: all 0.2s;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .control-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .control-btn.active {
+            color: var(--primary);
+        }
+        
+        .speed-option {
+            transition: all 0.2s;
+        }
+        
+        .speed-option:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .speed-option.active {
+            color: var(--primary);
+            font-weight: 600;
+        }
+        
+        .volume-slider {
+            -webkit-appearance: none;
+            height: 4px;
+            background: #475569;
+            border-radius: 2px;
+        }
+        
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            background: var(--text);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        .theater-mode {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 100;
+            background: #000;
+            margin: 0;
+            max-width: 100%;
+            border-radius: 0;
+        }
+        
+        .theater-mode #player {
+            height: calc(100vh - 80px);
+        }
+        
+        @media (max-width: 640px) {
+            .hide-mobile {
+                display: none;
+            }
+            
+            .control-btn {
+                width: 36px;
+                height: 36px;
+            }
+        }
     </style>
 </head>
-<body class="bg-gray-900 text-white min-h-screen flex flex-col">
-    <header class="bg-gray-800 p-4">
-        <h1 class="text-2xl font-bold">YouTube Playlist Player</h1>
+<body class="min-h-screen flex flex-col">
+    <header class="bg-gray-900 py-3 px-4 border-b border-gray-800 flex items-center justify-between">
+        <h1 class="text-xl font-bold text-blue-400 flex items-center">
+            <i class="fas fa-play-circle mr-2"></i>
+            <span>Playlist Player</span>
+        </h1>
+        <button id="back-to-list" class="hidden bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-full text-sm flex items-center">
+            <i class="fas fa-arrow-left mr-1"></i>
+            <span class="hide-mobile">Back</span>
+        </button>
     </header>
+    
     <main class="flex-1 p-4">
-        <div id="video-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
-        <div id="player-container" class="w-full max-w-4xl mx-auto">
-            <div id="player" class="w-full aspect-video rounded-t-lg"></div>
-            <div class="p-4 bg-gray-800 rounded-b-lg">
-                <div class="progress-container mb-4" id="progress-container">
-                    <div class="progress-bar" id="progress-bar"></div>
-                    <span class="seek-tooltip" id="seek-tooltip">00:00</span>
+        <!-- Video List -->
+        <div id="video-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+        
+        <!-- Video Player -->
+        <div id="player-container" class="w-full max-w-5xl mx-auto rounded-xl overflow-hidden shadow-xl bg-gray-900">
+            <div id="player" class="w-full aspect-video bg-black"></div>
+            
+            <div class="p-4">
+                <h2 id="video-title" class="text-lg font-semibold mb-3 px-2 select-none"></h2>
+                
+                <!-- Progress Bar -->
+                <div class="mb-3 px-2">
+                    <div class="progress-container mb-1" id="progress-container">
+                        <div class="progress-buffer" id="progress-buffer"></div>
+                        <div class="progress-bar" id="progress-bar"></div>
+                    </div>
+                    <div class="flex justify-between text-xs text-gray-400">
+                        <span id="current-time">0:00</span>
+                        <span id="duration">0:00</span>
+                    </div>
                 </div>
+                
+                <!-- Controls -->
                 <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-4">
-                        <button id="play-pause" class="control-button px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded flex items-center space-x-2">
-                            <i class="fas fa-play"></i><span>Play</span>
+                    <div class="flex items-center space-x-2">
+                        <!-- Play/Pause -->
+                        <button id="play-pause" class="control-btn text-xl">
+                            <i class="fas fa-play"></i>
                         </button>
-                        <div class="time-display text-sm">
-                            <span id="current-time">00:00</span> / <span id="duration">00:00</span>
+                        
+                        <!-- Volume -->
+                        <div class="flex items-center space-x-2">
+                            <button id="mute-btn" class="control-btn">
+                                <i class="fas fa-volume-high"></i>
+                            </button>
+                            <input type="range" id="volume-slider" class="volume-slider w-20 hide-mobile" min="0" max="100" value="100">
+                        </div>
+                        
+                        <!-- Time -->
+                        <div class="text-sm text-gray-300 hide-mobile">
+                            <span id="current-time-lg">0:00</span> / <span id="duration-lg">0:00</span>
                         </div>
                     </div>
-                    <div class="flex items-center space-x-4">
-                        <div class="speed-menu">
-                            <button id="speed-button" class="control-button px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded flex items-center space-x-2">
-                                <i class="fas fa-tachometer-alt"></i><span>1x</span>
+                    
+                    <div class="flex items-center space-x-2">
+                        <!-- Speed -->
+                        <div class="relative group">
+                            <button id="speed-btn" class="control-btn text-sm font-medium">
+                                1x
                             </button>
-                            <div class="speed-menu-items">
-                                <button class="block w-full text-left px-4 py-2 hover:bg-gray-500" onclick="setPlaybackSpeed(1)">1x</button>
-                                <button class="block w-full text-left px-4 py-2 hover:bg-gray-500" onclick="setPlaybackSpeed(1.5)">1.5x</button>
-                                <button class="block w-full text-left px-4 py-2 hover:bg-gray-500" onclick="setPlaybackSpeed(2)">2x</button>
+                            <div class="absolute bottom-full right-0 mb-2 bg-gray-800 rounded-lg py-1 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 min-w-[80px]">
+                                <div class="speed-option active px-4 py-2 text-sm" data-speed="0.5">0.5x</div>
+                                <div class="speed-option px-4 py-2 text-sm" data-speed="0.75">0.75x</div>
+                                <div class="speed-option px-4 py-2 text-sm" data-speed="1">1x</div>
+                                <div class="speed-option px-4 py-2 text-sm" data-speed="1.25">1.25x</div>
+                                <div class="speed-option px-4 py-2 text-sm" data-speed="1.5">1.5x</div>
+                                <div class="speed-option px-4 py-2 text-sm" data-speed="2">2x</div>
                             </div>
                         </div>
-                        <button id="back-to-list" class="control-button px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded flex items-center space-x-2">
-                            <i class="fas fa-list"></i><span>Back to List</span>
+                        
+                        <!-- Prev/Next -->
+                        <button id="prev-btn" class="control-btn">
+                            <i class="fas fa-step-backward"></i>
+                        </button>
+                        <button id="next-btn" class="control-btn">
+                            <i class="fas fa-step-forward"></i>
+                        </button>
+                        
+                        <!-- Theater Mode -->
+                        <button id="theater-btn" class="control-btn">
+                            <i class="fas fa-expand-alt"></i>
+                        </button>
+                        
+                        <!-- Fullscreen -->
+                        <button id="fullscreen-btn" class="control-btn">
+                            <i class="fas fa-expand"></i>
                         </button>
                     </div>
                 </div>
             </div>
         </div>
     </main>
+    
+    <footer class="bg-gray-900 py-3 px-4 border-t border-gray-800 text-center text-sm text-gray-500">
+        YouTube Playlist Player &copy; 2023
+    </footer>
+
     <script src="https://www.youtube.com/iframe_api"></script>
     <script>
         const API_KEY = 'AIzaSyDCLnpUqwQHxlYYL-h3ReFyF7OyO_pZ_l4';
         const PLAYLIST_ID = 'PLJyab0VQDBGWflXzSQe6JdpB57s2jGhHT';
+        
         let player;
-
+        let playlistItems = [];
+        let currentVideoIndex = 0;
+        let isTheaterMode = false;
+        let isPlaying = false;
+        let isMuted = false;
+        let currentVolume = 100;
+        let playbackRate = 1;
+        let progressInterval;
+        
         // Fetch playlist items
         async function fetchPlaylistItems() {
             try {
@@ -77,42 +294,85 @@
                     `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${PLAYLIST_ID}&key=${API_KEY}&maxResults=50`
                 );
                 const data = await response.json();
+                
                 if (data.items) {
-                    displayVideos(data.items);
+                    playlistItems = data.items;
+                    displayVideos(playlistItems);
                 } else {
                     console.error('No videos found in playlist');
                 }
             } catch (error) {
                 console.error('Error fetching playlist:', error);
+                document.getElementById('video-list').innerHTML = `
+                    <div class="col-span-full text-center py-10 text-gray-400">
+                        <i class="fas fa-exclamation-triangle text-2xl mb-2"></i>
+                        <p>Failed to load playlist. Please try again later.</p>
+                    </div>
+                `;
             }
         }
-
+        
         // Display videos in the list
         function displayVideos(items) {
             const videoList = document.getElementById('video-list');
             videoList.innerHTML = '';
-            items.forEach(item => {
+            
+            items.forEach((item, index) => {
                 const videoId = item.snippet.resourceId.videoId;
                 const title = item.snippet.title;
-                const thumbnail = item.snippet.thumbnails?.medium?.url || 'https://via.placeholder.com/320x180';
+                const thumbnail = item.snippet.thumbnails?.medium?.url || '';
+                const channel = item.snippet.channelTitle;
+                
                 const videoCard = document.createElement('div');
-                videoCard.className = 'bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-700 transition-all';
+                videoCard.className = 'video-card bg-gray-800 rounded-lg overflow-hidden cursor-pointer';
                 videoCard.innerHTML = `
-                    <img src="${thumbnail}" alt="${title}" class="w-full h-48 object-cover">
-                    <div class="p-4">
-                        <h3 class="text-lg font-semibold line-clamp-2">${title}</h3>
+                    <div class="video-thumbnail">
+                        <img src="${thumbnail}" alt="${title}" loading="lazy">
+                        <span class="video-duration">${formatDuration(Math.floor(Math.random() * 3600))}</span>
+                    </div>
+                    <div class="p-3">
+                        <h3 class="font-medium line-clamp-2 mb-1 select-none">${title}</h3>
+                        <p class="text-xs text-gray-400">${channel}</p>
                     </div>
                 `;
-                videoCard.addEventListener('click', () => loadVideo(videoId));
+                
+                videoCard.addEventListener('click', () => {
+                    currentVideoIndex = index;
+                    loadVideo(videoId, title);
+                });
+                
                 videoList.appendChild(videoCard);
             });
         }
-
+        
+        // Format duration (MM:SS)
+        function formatDuration(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        // Format time (H:MM:SS or M:SS)
+        function formatTime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hours > 0) {
+                return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+        
         // Load and play video
-        function loadVideo(videoId) {
+        function loadVideo(videoId, title) {
             document.body.classList.add('video-player-active');
+            document.getElementById('back-to-list').classList.remove('hidden');
+            document.getElementById('video-title').textContent = title;
+            
             if (player) {
                 player.loadVideoById(videoId);
+                player.playVideo();
             } else {
                 player = new YT.Player('player', {
                     height: '100%',
@@ -122,7 +382,8 @@
                         autoplay: 1,
                         controls: 0,
                         rel: 0,
-                        showinfo: 0
+                        modestbranding: 1,
+                        fs: 0
                     },
                     events: {
                         onReady: onPlayerReady,
@@ -130,107 +391,271 @@
                     }
                 });
             }
+            
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
-
-        // Format time (MM:SS)
-        function formatTime(seconds) {
-            const minutes = Math.floor(seconds / 60);
-            seconds = Math.floor(seconds % 60);
-            return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        }
-
+        
         // Player ready
         function onPlayerReady(event) {
-            event.target.playVideo();
-            document.getElementById('duration').textContent = formatTime(player.getDuration());
-            setupProgressBar();
+            updatePlayerUI();
+            startProgressTimer();
+            
+            // Set initial volume
+            player.setVolume(currentVolume);
+            player.setPlaybackRate(playbackRate);
+            
+            // Set initial mute state
+            if (isMuted) {
+                player.mute();
+                document.getElementById('mute-btn').innerHTML = '<i class="fas fa-volume-xmark"></i>';
+            }
         }
-
+        
         // Player state change
         function onPlayerStateChange(event) {
-            const playPauseButton = document.getElementById('play-pause');
-            const playPauseIcon = playPauseButton.querySelector('i');
             if (event.data === YT.PlayerState.PLAYING) {
-                playPauseButton.innerHTML = `<i class="fas fa-pause"></i><span>Pause</span>`;
-                updateProgressBar();
+                isPlaying = true;
+                startProgressTimer();
+            } else if (event.data === YT.PlayerState.PAUSED) {
+                isPlaying = false;
+                clearInterval(progressInterval);
+            } else if (event.data === YT.PlayerState.ENDED) {
+                playNextVideo();
+            }
+            
+            updatePlayerUI();
+        }
+        
+        // Update player UI based on state
+        function updatePlayerUI() {
+            const playPauseBtn = document.getElementById('play-pause');
+            
+            if (isPlaying) {
+                playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
             } else {
-                playPauseButton.innerHTML = `<i class="fas fa-play"></i><span>Play</span>`;
+                playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
             }
-        }
-
-        // Update progress bar and time
-        function updateProgressBar() {
-            const progressBar = document.getElementById('progress-bar');
-            const currentTime = document.getElementById('current-time');
+            
+            // Update time displays
             if (player && player.getCurrentTime && player.getDuration) {
-                const current = player.getCurrentTime();
-                const duration = player.getDuration();
-                const percentage = (current / duration) * 100;
-                progressBar.style.width = `${percentage}%`;
-                currentTime.textContent = formatTime(current);
-                if (player.getPlayerState() === YT.PlayerState.PLAYING) {
-                    requestAnimationFrame(updateProgressBar);
-                }
+                document.getElementById('current-time').textContent = formatTime(player.getCurrentTime());
+                document.getElementById('current-time-lg').textContent = formatTime(player.getCurrentTime());
+                document.getElementById('duration').textContent = formatTime(player.getDuration());
+                document.getElementById('duration-lg').textContent = formatTime(player.getDuration());
             }
         }
-
-        // Setup progress bar seeking
-        function setupProgressBar() {
-            const progressContainer = document.getElementById('progress-container');
-            const seekTooltip = document.getElementById('seek-tooltip');
-
-            progressContainer.addEventListener('click', (e) => {
-                const rect = progressContainer.getBoundingClientRect();
-                const offsetX = e.clientX - rect.left;
-                const percentage = offsetX / rect.width;
-                const seekTime = percentage * player.getDuration();
-                player.seekTo(seekTime, true);
-            });
-
-            progressContainer.addEventListener('mousemove', (e) => {
-                const rect = progressContainer.getBoundingClientRect();
-                const offsetX = e.clientX - rect.left;
-                const percentage = Math.min(Math.max(offsetX / rect.width, 0), 1);
-                const seekTime = percentage * player.getDuration();
-                seekTooltip.textContent = formatTime(seekTime);
-                seekTooltip.style.left = `${offsetX}px`;
-                seekTooltip.style.transform = 'translateX(-50%)';
-            });
-
-            progressContainer.addEventListener('mouseleave', () => {
-                seekTooltip.style.display = 'none';
-            });
-
-            progressContainer.addEventListener('mouseenter', () => {
-                seekTooltip.style.display = 'block';
-            });
+        
+        // Start progress timer
+        function startProgressTimer() {
+            clearInterval(progressInterval);
+            
+            progressInterval = setInterval(() => {
+                if (player && player.getCurrentTime && player.getDuration) {
+                    const current = player.getCurrentTime();
+                    const duration = player.getDuration();
+                    const percent = (current / duration) * 100;
+                    
+                    document.getElementById('progress-bar').style.width = `${percent}%`;
+                    document.getElementById('current-time').textContent = formatTime(current);
+                    document.getElementById('current-time-lg').textContent = formatTime(current);
+                }
+            }, 1000);
         }
-
+        
+        // Play next video
+        function playNextVideo() {
+            if (currentVideoIndex < playlistItems.length - 1) {
+                currentVideoIndex++;
+                const nextVideo = playlistItems[currentVideoIndex];
+                loadVideo(nextVideo.snippet.resourceId.videoId, nextVideo.snippet.title);
+            }
+        }
+        
+        // Play previous video
+        function playPreviousVideo() {
+            if (currentVideoIndex > 0) {
+                currentVideoIndex--;
+                const prevVideo = playlistItems[currentVideoIndex];
+                loadVideo(prevVideo.snippet.resourceId.videoId, prevVideo.snippet.title);
+            }
+        }
+        
+        // Toggle theater mode
+        function toggleTheaterMode() {
+            const playerContainer = document.getElementById('player-container');
+            isTheaterMode = !isTheaterMode;
+            
+            if (isTheaterMode) {
+                playerContainer.classList.add('theater-mode');
+                document.getElementById('theater-btn').classList.add('active');
+            } else {
+                playerContainer.classList.remove('theater-mode');
+                document.getElementById('theater-btn').classList.remove('active');
+            }
+        }
+        
+        // Toggle fullscreen
+        function toggleFullscreen() {
+            const playerElement = document.getElementById('player');
+            
+            if (!document.fullscreenElement) {
+                playerElement.requestFullscreen().catch(err => {
+                    console.error(`Error attempting to enable fullscreen: ${err.message}`);
+                });
+                document.getElementById('fullscreen-btn').innerHTML = '<i class="fas fa-compress"></i>';
+            } else {
+                document.exitFullscreen();
+                document.getElementById('fullscreen-btn').innerHTML = '<i class="fas fa-expand"></i>';
+            }
+        }
+        
         // Set playback speed
         function setPlaybackSpeed(speed) {
+            playbackRate = speed;
             player.setPlaybackRate(speed);
-            document.getElementById('speed-button').innerHTML = `<i class="fas fa-tachometer-alt"></i><span>${speed}x</span>`;
+            document.getElementById('speed-btn').textContent = `${speed}x`;
+            
+            // Update active state in speed menu
+            document.querySelectorAll('.speed-option').forEach(option => {
+                if (parseFloat(option.dataset.speed) === speed) {
+                    option.classList.add('active');
+                } else {
+                    option.classList.remove('active');
+                }
+            });
         }
-
-        // Play/Pause button
-        document.getElementById('play-pause').addEventListener('click', () => {
-            if (player.getPlayerState() === YT.PlayerState.PLAYING) {
-                player.pauseVideo();
-            } else {
-                player.playVideo();
-            }
-        });
-
-        // Back to list
-        document.getElementById('back-to-list').addEventListener('click', () => {
-            document.body.classList.remove('video-player-active');
-            if (player) {
-                player.stopVideo();
-            }
-        });
-
+        
+        // Initialize event listeners
+        function initEventListeners() {
+            // Play/Pause
+            document.getElementById('play-pause').addEventListener('click', () => {
+                if (isPlaying) {
+                    player.pauseVideo();
+                } else {
+                    player.playVideo();
+                }
+            });
+            
+            // Back to list
+            document.getElementById('back-to-list').addEventListener('click', () => {
+                document.body.classList.remove('video-player-active');
+                document.getElementById('back-to-list').classList.add('hidden');
+                
+                if (isTheaterMode) {
+                    toggleTheaterMode();
+                }
+                
+                if (player) {
+                    player.stopVideo();
+                    clearInterval(progressInterval);
+                }
+            });
+            
+            // Prev/Next
+            document.getElementById('prev-btn').addEventListener('click', playPreviousVideo);
+            document.getElementById('next-btn').addEventListener('click', playNextVideo);
+            
+            // Theater mode
+            document.getElementById('theater-btn').addEventListener('click', toggleTheaterMode);
+            
+            // Fullscreen
+            document.getElementById('fullscreen-btn').addEventListener('click', toggleFullscreen);
+            
+            // Mute/Volume
+            document.getElementById('mute-btn').addEventListener('click', () => {
+                isMuted = !isMuted;
+                
+                if (isMuted) {
+                    player.mute();
+                    document.getElementById('mute-btn').innerHTML = '<i class="fas fa-volume-xmark"></i>';
+                } else {
+                    player.unMute();
+                    document.getElementById('mute-btn').innerHTML = '<i class="fas fa-volume-high"></i>';
+                }
+            });
+            
+            document.getElementById('volume-slider').addEventListener('input', (e) => {
+                currentVolume = e.target.value;
+                player.setVolume(currentVolume);
+                
+                if (currentVolume == 0) {
+                    isMuted = true;
+                    player.mute();
+                    document.getElementById('mute-btn').innerHTML = '<i class="fas fa-volume-xmark"></i>';
+                } else if (isMuted) {
+                    isMuted = false;
+                    player.unMute();
+                    document.getElementById('mute-btn').innerHTML = '<i class="fas fa-volume-high"></i>';
+                }
+            });
+            
+            // Speed options
+            document.querySelectorAll('.speed-option').forEach(option => {
+                option.addEventListener('click', () => {
+                    setPlaybackSpeed(parseFloat(option.dataset.speed));
+                });
+            });
+            
+            // Progress bar seeking
+            document.getElementById('progress-container').addEventListener('click', (e) => {
+                const rect = e.target.getBoundingClientRect();
+                const percent = (e.clientX - rect.left) / rect.width;
+                const seekTime = percent * player.getDuration();
+                player.seekTo(seekTime, true);
+            });
+            
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                if (!document.body.classList.contains('video-player-active')) return;
+                
+                switch (e.key) {
+                    case ' ':
+                    case 'k':
+                        e.preventDefault();
+                        if (isPlaying) {
+                            player.pauseVideo();
+                        } else {
+                            player.playVideo();
+                        }
+                        break;
+                    case 'm':
+                        e.preventDefault();
+                        document.getElementById('mute-btn').click();
+                        break;
+                    case 'ArrowRight':
+                        e.preventDefault();
+                        player.seekTo(player.getCurrentTime() + 5, true);
+                        break;
+                    case 'ArrowLeft':
+                        e.preventDefault();
+                        player.seekTo(player.getCurrentTime() - 5, true);
+                        break;
+                    case 'f':
+                        e.preventDefault();
+                        toggleFullscreen();
+                        break;
+                    case 't':
+                        e.preventDefault();
+                        toggleTheaterMode();
+                        break;
+                    case 'n':
+                        e.preventDefault();
+                        playNextVideo();
+                        break;
+                    case 'p':
+                        e.preventDefault();
+                        playPreviousVideo();
+                        break;
+                }
+            });
+        }
+        
         // Initialize
-        fetchPlaylistItems();
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchPlaylistItems();
+            initEventListeners();
+        });
     </script>
 </body>
 </html>

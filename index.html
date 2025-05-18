@@ -5,11 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube Playlist Player</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" integrity="sha512-Kc323vGBEqzTmouAECnVceyQqyqdsSiqLQISBL29aUW4U/M7pSPA/gEUZQqv1cwx4OnYxTxve5UMg5GT6L4JJg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
         #player-container { display: none; }
         .video-player-active #video-list { display: none; }
         .video-player-active #player-container { display: block; }
-        .progress-bar { width: 0%; height: 4px; background: #ff0000; transition: width 0.1s; }
+        .progress-container { background: #4b5563; height: 8px; cursor: pointer; position: relative; border-radius: 4px; }
+        .progress-bar { height: 100%; background: #10b981; transition: width 0.1s; border-radius: 4px; }
+        .progress-container:hover .progress-bar { opacity: 0.8; }
+        .seek-tooltip { display: none; position: absolute; bottom: 20px; background: #1f2937; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+        .progress-container:hover .seek-tooltip { display: block; }
+        .speed-menu { position: relative; }
+        .speed-menu-items { display: none; position: absolute; bottom: 100%; right: 0; background: #1f2937; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+        .speed-menu:hover .speed-menu-items { display: block; }
+        .control-button { transition: background 0.2s, transform 0.1s; }
+        .control-button:hover { transform: scale(1.05); }
+        .time-display { font-family: monospace; }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen flex flex-col">
@@ -19,13 +30,37 @@
     <main class="flex-1 p-4">
         <div id="video-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
         <div id="player-container" class="w-full max-w-4xl mx-auto">
-            <div id="player" class="w-full aspect-video"></div>
-            <div class="flex items-center justify-between p-2 bg-gray-800">
-                <button id="play-pause" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded">Play</button>
-                <div class="flex-1 mx-2">
+            <div id="player" class="w-full aspect-video rounded-t-lg"></div>
+            <div class="p-4 bg-gray-800 rounded-b-lg">
+                <div class="progress-container mb-4" id="progress-container">
                     <div class="progress-bar" id="progress-bar"></div>
+                    <span class="seek-tooltip" id="seek-tooltip">00:00</span>
                 </div>
-                <button id="back-to-list" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded">Back to List</button>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-4">
+                        <button id="play-pause" class="control-button px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded flex items-center space-x-2">
+                            <i class="fas fa-play"></i><span>Play</span>
+                        </button>
+                        <div class="time-display text-sm">
+                            <span id="current-time">00:00</span> / <span id="duration">00:00</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <div class="speed-menu">
+                            <button id="speed-button" class="control-button px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded flex items-center space-x-2">
+                                <i class="fas fa-tachometer-alt"></i><span>1x</span>
+                            </button>
+                            <div class="speed-menu-items">
+                                <button class="block w-full text-left px-4 py-2 hover:bg-gray-500" onclick="setPlaybackSpeed(1)">1x</button>
+                                <button class="block w-full text-left px-4 py-2 hover:bg-gray-500" onclick="setPlaybackSpeed(1.5)">1.5x</button>
+                                <button class="block w-full text-left px-4 py-2 hover:bg-gray-500" onclick="setPlaybackSpeed(2)">2x</button>
+                            </div>
+                        </div>
+                        <button id="back-to-list" class="control-button px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded flex items-center space-x-2">
+                            <i class="fas fa-list"></i><span>Back to List</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </main>
@@ -61,11 +96,11 @@
                 const title = item.snippet.title;
                 const thumbnail = item.snippet.thumbnails?.medium?.url || 'https://via.placeholder.com/320x180';
                 const videoCard = document.createElement('div');
-                videoCard.className = 'bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-700';
+                videoCard.className = 'bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-700 transition-all';
                 videoCard.innerHTML = `
                     <img src="${thumbnail}" alt="${title}" class="w-full h-48 object-cover">
                     <div class="p-4">
-                        <h3 class="text-lg font-semibold">${title}</h3>
+                        <h3 class="text-lg font-semibold line-clamp-2">${title}</h3>
                     </div>
                 `;
                 videoCard.addEventListener('click', () => loadVideo(videoId));
@@ -85,7 +120,7 @@
                     videoId: videoId,
                     playerVars: {
                         autoplay: 1,
-                        controls: 0, // Hide default controls
+                        controls: 0,
                         rel: 0,
                         showinfo: 0
                     },
@@ -97,34 +132,84 @@
             }
         }
 
+        // Format time (MM:SS)
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            seconds = Math.floor(seconds % 60);
+            return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
         // Player ready
         function onPlayerReady(event) {
             event.target.playVideo();
+            document.getElementById('duration').textContent = formatTime(player.getDuration());
+            setupProgressBar();
         }
 
         // Player state change
         function onPlayerStateChange(event) {
             const playPauseButton = document.getElementById('play-pause');
+            const playPauseIcon = playPauseButton.querySelector('i');
             if (event.data === YT.PlayerState.PLAYING) {
-                playPauseButton.textContent = 'Pause';
+                playPauseButton.innerHTML = `<i class="fas fa-pause"></i><span>Pause</span>`;
                 updateProgressBar();
             } else {
-                playPauseButton.textContent = 'Play';
+                playPauseButton.innerHTML = `<i class="fas fa-play"></i><span>Play</span>`;
             }
         }
 
-        // Update progress bar
+        // Update progress bar and time
         function updateProgressBar() {
             const progressBar = document.getElementById('progress-bar');
+            const currentTime = document.getElementById('current-time');
             if (player && player.getCurrentTime && player.getDuration) {
-                const currentTime = player.getCurrentTime();
+                const current = player.getCurrentTime();
                 const duration = player.getDuration();
-                const percentage = (currentTime / duration) * 100;
+                const percentage = (current / duration) * 100;
                 progressBar.style.width = `${percentage}%`;
+                currentTime.textContent = formatTime(current);
                 if (player.getPlayerState() === YT.PlayerState.PLAYING) {
                     requestAnimationFrame(updateProgressBar);
                 }
             }
+        }
+
+        // Setup progress bar seeking
+        function setupProgressBar() {
+            const progressContainer = document.getElementById('progress-container');
+            const seekTooltip = document.getElementById('seek-tooltip');
+
+            progressContainer.addEventListener('click', (e) => {
+                const rect = progressContainer.getBoundingClientRect();
+                const offsetX = e.clientX - rect.left;
+                const percentage = offsetX / rect.width;
+                const seekTime = percentage * player.getDuration();
+                player.seekTo(seekTime, true);
+            });
+
+            progressContainer.addEventListener('mousemove', (e) => {
+                const rect = progressContainer.getBoundingClientRect();
+                const offsetX = e.clientX - rect.left;
+                const percentage = Math.min(Math.max(offsetX / rect.width, 0), 1);
+                const seekTime = percentage * player.getDuration();
+                seekTooltip.textContent = formatTime(seekTime);
+                seekTooltip.style.left = `${offsetX}px`;
+                seekTooltip.style.transform = 'translateX(-50%)';
+            });
+
+            progressContainer.addEventListener('mouseleave', () => {
+                seekTooltip.style.display = 'none';
+            });
+
+            progressContainer.addEventListener('mouseenter', () => {
+                seekTooltip.style.display = 'block';
+            });
+        }
+
+        // Set playback speed
+        function setPlaybackSpeed(speed) {
+            player.setPlaybackRate(speed);
+            document.getElementById('speed-button').innerHTML = `<i class="fas fa-tachometer-alt"></i><span>${speed}x</span>`;
         }
 
         // Play/Pause button

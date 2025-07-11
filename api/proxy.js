@@ -25,45 +25,88 @@ module.exports = async (req, res) => {
     return;
   }
 
+  // Browser-like headers to bypass bot detection
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache'
+  };
+
   // Retry logic
   const maxRetries = 3;
   let attempt = 0;
+  let useBrowserless = false;
 
   while (attempt < maxRetries) {
     try {
-      const response = await axios.get(url, {
-        timeout: 10000, // 10-second timeout
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1'
-        },
-        maxRedirects: 5,
-        validateStatus: (status) => status >= 200 && status < 400 // Accept 2xx and 3xx status codes
-      });
+      let response;
 
-      // Check content length to avoid Vercel response size limits (5MB for free tier)
-      const contentLength = response.headers['content-length'] || response.data.length;
-      if (contentLength > 5 * 1024 * 1024) {
-        throw new Error('Response size exceeds Vercel limit (5MB)');
+      if (useBrowserless) {
+        // Optional: Use Browserless.io for protected sites
+        const browserlessToken = process.env.BROWSERLESS_TOKEN; // Set in Vercel environment variables
+        if (!browserlessToken) {
+          throw new Error('Browserless token not configured');
+        }
+
+        response = await axios.post(
+          `https://chrome.browserless.io/content?token=${browserlessToken}`,
+          { url },
+          {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 30000 // 30-second timeout for Browserless
+          }
+        );
+        response.data = response.data.html; // Browserless returns HTML in response.data.html
+      } else {
+        // Standard HTTP fetch with axios
+        response = await axios.get(url, {
+          timeout: 10000, // 10-second timeout
+          headers,
+          maxRedirects: 5,
+          validateStatus: (status) => status >= 200 && status < 400,
+          responseType: 'text'
+        });
+      }
+
+      // Check content length (Vercel free tier limit: 4.5MB)
+      const contentLength = response.headers['content-length'] || (response.data?.length || 0);
+      if (contentLength > 4.5 * 1024 * 1024) {
+        throw new Error('Response size exceeds Vercel limit (4.5MB)');
       }
 
       res.status(200).json({ content: response.data });
       return;
     } catch (error) {
       attempt++;
+      const errorMessage = error.response
+        ? `Failed to fetch ${url}: ${error.response.status} ${error.response.statusText}`
+        : `Failed to fetch ${url}: ${error.message}`;
+
       if (attempt === maxRetries) {
-        const errorMessage = error.response
-          ? `Failed to fetch ${url}: ${error.response.status} ${error.response.statusText}`
-          : `Failed to fetch ${url}: ${error.message}`;
+        // Fallback to Browserless on last attempt if not already tried
+        if (!useBrowserless && error.response?.status === 403) {
+          useBrowserless = true;
+          attempt = 0; // Reset attempts for Browserless
+          logError(`Retrying with Browserless due to 403 error: ${errorMessage}`);
+          continue;
+        }
         res.status(500).json({ error: errorMessage });
         return;
       }
-      // Wait before retrying
-      await setTimeout(1000 * attempt);
+
+      // Log error for debugging
+      logError(`Attempt ${attempt} failed: ${errorMessage}`);
+      await setTimeout(1000 * attempt); // Exponential backoff
     }
   }
 };
+
+// Basic error logging (replace with a proper logging service in production)
+function logError(message) {
+  console.error(`[${new Date().toISOString()}] ${message}`);
+}

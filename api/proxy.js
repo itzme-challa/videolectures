@@ -1,4 +1,5 @@
-const fetch = require('node-fetch');
+const axios = require('axios');
+const { setTimeout } = require('timers/promises');
 
 module.exports = async (req, res) => {
   // Set CORS headers
@@ -24,34 +25,84 @@ module.exports = async (req, res) => {
     return;
   }
 
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-      },
-      timeout: 10000 // 10-second timeout
-    });
+  // Browser-like headers to bypass bot detection
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache'
+  };
 
-    if (!response.ok) {
-      let errorMessage = `Failed to fetch ${url}: ${response.status} ${response.statusText}`;
-      if (response.status === 403) {
-        errorMessage += ' (Possible bot detection or access restriction)';
-      } else if (response.status === 429) {
-        errorMessage += ' (Rate limited by the server)';
+  // Retry logic
+  const maxRetries = 3;
+  let attempt = 0;
+  let useBrowserless = false;
+
+  while (attempt < maxRetries) {
+    try {
+      let response;
+
+      if (useBrowserless) {
+        const browserlessToken = process.env.BROWSERLESS_TOKEN;
+        if (!browserlessToken) {
+          throw new Error('Browserless token not configured. Please set BROWSERLESS_TOKEN in Vercel environment variables.');
+        }
+
+        response = await axios.post(
+          `https://chrome.browserless.io/content?token=${browserlessToken}`,
+          { url, stealth: true, blockAds: true },
+          {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 30000
+          }
+        );
+        response.data = response.data.html;
+      } else {
+        response = await axios.get(url, {
+          timeout: 10000,
+          headers,
+          maxRedirects: 5,
+          validateStatus: (status) => status >= 200 && status < 400,
+          responseType: 'text'
+        });
       }
-      throw new Error(errorMessage);
-    }
 
-    const content = await response.text();
-    res.status(200).json({ content });
-  } catch (error) {
-    res.status(500).json({
-      error: error.message || 'An unexpected error occurred while fetching the website'
-    });
+      // Check content length (Vercel free tier limit: 4.5MB)
+      const contentLength = response.headers['content-length'] || (response.data?.length || 0);
+      if (contentLength > 4.5 * 1024 * 1024) {
+        throw new Error('Response size exceeds Vercel limit (4.5MB). Try a smaller page or upgrade to Vercel Pro.');
+      }
+
+      res.status(200).json({ content: response.data });
+      return;
+    } catch (error) {
+      attempt++;
+      const errorMessage = error.response
+        ? `Failed to fetch ${url}: ${error.response.status} ${error.response.statusText}`
+        : `Failed to fetch ${url}: ${error.message}`;
+
+      if (attempt === maxRetries) {
+        if (!useBrowserless && (error.response?.status === 403 || error.response?.status === 429)) {
+          useBrowserless = true;
+          attempt = 0;
+          logError(`Retrying with Browserless due to ${error.response?.status} error: ${errorMessage}`);
+          continue;
+        }
+        res.status(500).json({ error: errorMessage });
+        return;
+      }
+
+      logError(`Attempt ${attempt} failed: ${errorMessage}`);
+      await setTimeout(1000 * attempt);
+    }
   }
 };
+
+// Server-side error logging
+function logError(message) {
+  console.error(`[${new Date().toISOString()}] ${message}`);
+}

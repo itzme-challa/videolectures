@@ -1,4 +1,5 @@
-const fetch = require('node-fetch');
+const axios = require('axios');
+const { setTimeout } = require('timers/promises');
 
 module.exports = async (req, res) => {
   // Set CORS headers
@@ -24,20 +25,45 @@ module.exports = async (req, res) => {
     return;
   }
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+  // Retry logic
+  const maxRetries = 3;
+  let attempt = 0;
+
+  while (attempt < maxRetries) {
+    try {
+      const response = await axios.get(url, {
+        timeout: 10000, // 10-second timeout
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1'
+        },
+        maxRedirects: 5,
+        validateStatus: (status) => status >= 200 && status < 400 // Accept 2xx and 3xx status codes
+      });
+
+      // Check content length to avoid Vercel response size limits (5MB for free tier)
+      const contentLength = response.headers['content-length'] || response.data.length;
+      if (contentLength > 5 * 1024 * 1024) {
+        throw new Error('Response size exceeds Vercel limit (5MB)');
       }
-    });
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+      res.status(200).json({ content: response.data });
+      return;
+    } catch (error) {
+      attempt++;
+      if (attempt === maxRetries) {
+        const errorMessage = error.response
+          ? `Failed to fetch ${url}: ${error.response.status} ${error.response.statusText}`
+          : `Failed to fetch ${url}: ${error.message}`;
+        res.status(500).json({ error: errorMessage });
+        return;
+      }
+      // Wait before retrying
+      await setTimeout(1000 * attempt);
     }
-
-    const content = await response.text();
-    res.status(200).json({ content });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 };

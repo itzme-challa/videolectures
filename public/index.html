@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Website Console Inspector</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+  <div class="container mx-auto p-4 max-w-7xl">
+    <h1 class="text-2xl font-bold mb-4">Website Console Inspector</h1>
+    <div class="flex mb-4">
+      <input
+        id="urlInput"
+        type="text"
+        placeholder="Enter website URL (e.g., https://example.com)"
+        class="flex-grow p-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+      <button
+        onclick="loadWebsite()"
+        class="bg-blue-500 text-white p-2 rounded-r-md hover:bg-blue-600"
+      >
+        Load Website
+      </button>
+    </div>
+    <div id="errorMessage" class="text-red-500 mb-4 hidden"></div>
+    <div class="flex flex-col md:flex-row gap-4">
+      <div class="w-full md:w-2/3">
+        <iframe
+          id="websiteFrame"
+          class="w-full h-[500px] border border-gray-300 rounded-md"
+          sandbox="allow-scripts allow-same-origin"
+        ></iframe>
+      </div>
+      <div class="w-full md:w-1/3">
+        <h2 class="text-lg font-semibold mb-2">Console Output</h2>
+        <div
+          id="consoleOutput"
+          class="bg-black text-white p-4 h-[500px] overflow-y-auto rounded-md font-mono text-sm"
+        ></div>
+      </div>
+    </div>
+    <div class="mt-4 text-sm text-gray-600">
+      <p><strong>Note:</strong> Some websites may still block content inspection due to security policies. Try testing with permissive sites like <a href="#" onclick="urlInput.value='https://example.com';loadWebsite();" class="text-blue-500">https://example.com</a>.</p>
+    </div>
+  </div>
+  <script>
+    // Get DOM elements
+    const urlInput = document.getElementById('urlInput');
+    const websiteFrame = document.getElementById('websiteFrame');
+    const consoleOutput = document.getElementById('consoleOutput');
+    const errorMessage = document.getElementById('errorMessage');
+
+    // Function to log messages to the console output
+    function logToConsole(message, type = 'log') {
+      const timestamp = new Date().toLocaleTimeString();
+      const logElement = document.createElement('div');
+      logElement.className = {
+        log: 'text-gray-300',
+        error: 'text-red-400',
+        warn: 'text-yellow-400'
+      }[type] || 'text-gray-300';
+      logElement.textContent = `[${timestamp}] ${type.toUpperCase()}: ${message}`;
+      consoleOutput.appendChild(logElement);
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+
+    // Function to show error messages
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.classList.remove('hidden');
+    }
+
+    // Function to clear error messages
+    function clearError() {
+      errorMessage.textContent = '';
+      errorMessage.classList.add('hidden');
+    }
+
+    // Function to load the website via proxy
+    async function loadWebsite() {
+      const url = urlInput.value.trim();
+      if (!url) {
+        showError('Please enter a valid URL');
+        return;
+      }
+
+      // Validate URL
+      let validUrl = url;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        validUrl = 'https://' + url; // Default to HTTPS
+      }
+      try {
+        new URL(validUrl);
+      } catch {
+        showError('Invalid URL format. Please include http:// or https://');
+        return;
+      }
+
+      clearError();
+      consoleOutput.innerHTML = ''; // Clear previous logs
+      logToConsole(`Attempting to load ${validUrl} via proxy`, 'log');
+
+      try {
+        // Fetch website content via proxy
+        const response = await fetch('/api/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: validUrl })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Proxy request failed: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        // Load content into iframe
+        websiteFrame.srcdoc = data.content;
+        logToConsole('Website content loaded successfully', 'log');
+
+        // Attempt to inject console interception script
+        websiteFrame.onload = () => {
+          try {
+            const iframeWindow = websiteFrame.contentWindow;
+            if (!iframeWindow) {
+              showError('Cannot access iframe content.');
+              logToConsole('Console access blocked', 'error');
+              return;
+            }
+
+            // Inject script to capture console output
+            const script = iframeWindow.document.createElement('script');
+            script.textContent = `
+              (function() {
+                const originalLog = console.log;
+                const originalError = console.error;
+                const originalWarn = console.warn;
+                console.log = function(...args) {
+                  window.parent.postMessage({ type: 'console', method: 'log', message: args.join(' ') }, '*');
+                  originalLog.apply(console, args);
+                };
+                console.error = function(...args) {
+                  window.parent.postMessage({ type: 'console', method: 'error', message: args.join(' ') }, '*');
+                  originalError.apply(console, args);
+                };
+                console.warn = function(...args) {
+                  window.parent.postMessage({ type: 'console', method: 'warn', message: args.join(' ') }, '*');
+                  originalWarn.apply(console, args);
+                };
+                window.onerror = function(message, source, lineno, colno, error) {
+                  window.parent.postMessage({ type: 'console', method: 'error', message: \`\${message} at \${source}:\${lineno}:\${colno}\` }, '*');
+                  return true;
+                };
+              })();
+            `;
+            iframeWindow.document.head.appendChild(script);
+
+            // Listen for console messages from iframe
+            window.addEventListener('message', (event) => {
+              if (event.data.type === 'console') {
+                logToConsole(event.data.message, event.data.method);
+              }
+            });
+
+            logToConsole('Console interception set up successfully', 'log');
+          } catch (e) {
+            showError('Cannot access website console: ' + e.message);
+            logToConsole(`Console access error: ${e.message}`, 'error');
+          }
+        };
+      } catch (e) {
+        showError(`Failed to load website: ${e.message}`);
+        logToConsole(`Error: ${e.message}`, 'error');
+      }
+    }
+
+    // Handle Enter key in URL input
+    urlInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        loadWebsite();
+      }
+    });
+
+    // Handle window errors for additional debugging
+    window.addEventListener('error', (event) => {
+      logToConsole(`Global error: ${event.message}`, 'error');
+    });
+  </script>
+</body>
+</html>

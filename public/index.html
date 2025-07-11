@@ -94,7 +94,6 @@
 
     // Function to sanitize script input (basic XSS prevention)
     function sanitizeScript(script) {
-      // Remove potentially dangerous tags and attributes
       return script.replace(/<\/?script\b[^>]*>|javascript:/gi, '');
     }
 

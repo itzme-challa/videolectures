@@ -26,18 +26,32 @@ module.exports = async (req, res) => {
 
   try {
     const response = await fetch(url, {
+      method: 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+      },
+      timeout: 10000 // 10-second timeout
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+      let errorMessage = `Failed to fetch ${url}: ${response.status} ${response.statusText}`;
+      if (response.status === 403) {
+        errorMessage += ' (Possible bot detection or access restriction)';
+      } else if (response.status === 429) {
+        errorMessage += ' (Rate limited by the server)';
+      }
+      throw new Error(errorMessage);
     }
 
     const content = await response.text();
     res.status(200).json({ content });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error: error.message || 'An unexpected error occurred while fetching the website'
+    });
   }
 };

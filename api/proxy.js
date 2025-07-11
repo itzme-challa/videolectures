@@ -25,7 +25,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Browser-like headers to bypass bot detection
+  // Browser-like headers for axios fallback
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -52,16 +52,69 @@ module.exports = async (req, res) => {
           throw new Error('Browserless token not configured. Please set BROWSERLESS_TOKEN in Vercel environment variables.');
         }
 
+        // Browserless custom function to capture HTML, network requests, and console logs
+        const browserlessScript = `
+          module.exports = async ({ page, context }) => {
+            const networkRequests = [];
+            const consoleLogs = [];
+
+            // Intercept network requests
+            await page.setRequestInterception(true);
+            page.on('request', request => {
+              networkRequests.push({
+                url: request.url(),
+                method: request.method(),
+                resourceType: request.resourceType(),
+                headers: request.headers()
+              });
+              request.continue();
+            });
+
+            // Capture console logs
+            page.on('console', msg => {
+              consoleLogs.push({
+                type: msg.type(),
+                text: msg.text(),
+                location: msg.location()
+              });
+            });
+
+            // Navigate to the page
+            await page.goto(context.url, { waitUntil: 'networkidle2' });
+
+            // Get page content
+            const html = await page.content();
+
+            return { html, networkRequests, consoleLogs };
+          };
+        `;
+
         response = await axios.post(
-          `https://chrome.browserless.io/content?token=${browserlessToken}`,
-          { url, stealth: true, blockAds: true },
+          `https://chrome.browserless.io/function?token=${browserlessToken}`,
+          {
+            code: browserlessScript,
+            context: { url, stealth: true, blockAds: true }
+          },
           {
             headers: { 'Content-Type': 'application/json' },
-            timeout: 30000
+            timeout: 60000 // Increased timeout for headless browser
           }
         );
-        response.data = response.data.html;
+
+        // Check content size (Vercel free tier limit: 4.5MB)
+        const contentLength = JSON.stringify(response.data).length;
+        if (contentLength > 4.5 * 1024 * 1024) {
+          throw new Error('Response size exceeds Vercel limit (4.5MB). Try a smaller page or upgrade to Vercel Pro.');
+        }
+
+        res.status(200).json({
+          content: response.data.html,
+          networkRequests: response.data.networkRequests,
+          consoleLogs: response.data.consoleLogs
+        });
+        return;
       } else {
+        // Fallback to axios for simple HTML fetch
         response = await axios.get(url, {
           timeout: 10000,
           headers,
@@ -69,16 +122,17 @@ module.exports = async (req, res) => {
           validateStatus: (status) => status >= 200 && status < 400,
           responseType: 'text'
         });
-      }
 
-      // Check content length (Vercel free tier limit: 4.5MB)
-      const contentLength = response.headers['content-length'] || (response.data?.length || 0);
-      if (contentLength > 4.5 * 1024 * 1024) {
-        throw new Error('Response size exceeds Vercel limit (4.5MB). Try a smaller page or upgrade to Vercel Pro.');
-      }
+        // Check content length
+        const contentLength = response.headers['content-length'] || (response.data?.length || 0);
+        if (contentLength > 4.5 * 1024 * 1024) {
+          throw new Error('Response size exceeds Vercel limit (4.5MB). Try a smaller page or upgrade to Vercel Pro.');
+        }
 
-      res.status(200).json({ content: response.data });
-      return;
+        // Return only HTML content (no network or console logs with axios)
+        res.status(200).json({ content: response.data, networkRequests: [], consoleLogs: [] });
+        return;
+      }
     } catch (error) {
       attempt++;
       const errorMessage = error.response

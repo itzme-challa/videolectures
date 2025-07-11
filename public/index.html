@@ -41,7 +41,7 @@
       </div>
     </div>
     <div class="mt-4 text-sm text-gray-600">
-      <p><strong>Note:</strong> Some websites may still block content inspection due to security policies. Try testing with permissive sites like <a href="#" onclick="urlInput.value='https://example.com';loadWebsite();" class="text-blue-500">https://example.com</a>.</p>
+      <p><strong>Note:</strong> Some websites may block loading due to security policies (e.g., X-Frame-Options, CSP, or bot detection). Try testing with permissive sites like <a href="#" onclick="urlInput.value='https://example.com';loadWebsite();" class="text-blue-500">https://example.com</a>.</p>
     </div>
   </div>
   <script>
@@ -109,11 +109,11 @@
           body: JSON.stringify({ url: validUrl })
         });
 
+        const data = await response.json();
         if (!response.ok) {
-          throw new Error(`Proxy request failed: ${response.statusText}`);
+          throw new Error(data.error || `Proxy request failed: ${response.status} ${response.statusText}`);
         }
 
-        const data = await response.json();
         if (data.error) {
           throw new Error(data.error);
         }
@@ -164,7 +164,7 @@
               if (event.data.type === 'console') {
                 logToConsole(event.data.message, event.data.method);
               }
-            });
+            }, { once: false });
 
             logToConsole('Console interception set up successfully', 'log');
           } catch (e) {

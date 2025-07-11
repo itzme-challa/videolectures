@@ -1,6 +1,9 @@
 const axios = require('axios');
 const { setTimeout } = require('timers/promises');
 
+// Domains that typically require Browserless
+const BROWSERLESS_DOMAINS = ['quizardv2.dev-boi.xyz'];
+
 module.exports = async (req, res) => {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -25,6 +28,9 @@ module.exports = async (req, res) => {
     return;
   }
 
+  // Check if this is a domain that typically requires Browserless
+  let useBrowserless = BROWSERLESS_DOMAINS.some(domain => url.includes(domain));
+  
   // Browser-like headers to bypass bot detection
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -40,7 +46,6 @@ module.exports = async (req, res) => {
   // Retry logic
   const maxRetries = 3;
   let attempt = 0;
-  let useBrowserless = false;
 
   while (attempt < maxRetries) {
     try {
@@ -52,16 +57,27 @@ module.exports = async (req, res) => {
           throw new Error('Browserless token not configured. Please set BROWSERLESS_TOKEN in Vercel environment variables.');
         }
 
+        logError(`Attempting to fetch via Browserless (attempt ${attempt + 1})`);
+        
         response = await axios.post(
           `https://chrome.browserless.io/content?token=${browserlessToken}`,
-          { url, stealth: true, blockAds: true },
+          { 
+            url, 
+            options: {
+              stealth: true,
+              blockAds: true,
+              userAgent: headers['User-Agent'],
+              waitFor: 2000 // wait for 2 seconds to ensure page loads
+            }
+          },
           {
             headers: { 'Content-Type': 'application/json' },
-            timeout: 30000
+            timeout: 20000 // 20 seconds
           }
         );
         response.data = response.data.html;
       } else {
+        logError(`Attempting direct fetch (attempt ${attempt + 1})`);
         response = await axios.get(url, {
           timeout: 10000,
           headers,
@@ -71,7 +87,7 @@ module.exports = async (req, res) => {
         });
       }
 
-      // Check content length (Vercel free tier limit: 4.5MB)
+      // Check content length
       const contentLength = response.headers['content-length'] || (response.data?.length || 0);
       if (contentLength > 4.5 * 1024 * 1024) {
         throw new Error('Response size exceeds Vercel limit (4.5MB). Try a smaller page or upgrade to Vercel Pro.');
@@ -85,24 +101,28 @@ module.exports = async (req, res) => {
         ? `Failed to fetch ${url}: ${error.response.status} ${error.response.statusText}`
         : `Failed to fetch ${url}: ${error.message}`;
 
+      logError(`Attempt ${attempt} failed: ${errorMessage}`);
+
       if (attempt === maxRetries) {
         if (!useBrowserless && (error.response?.status === 403 || error.response?.status === 429)) {
           useBrowserless = true;
-          attempt = 0;
-          logError(`Retrying with Browserless due to ${error.response?.status} error: ${errorMessage}`);
+          attempt = 0; // Reset attempts for Browserless
+          logError(`Switching to Browserless due to ${error.response?.status} error`);
           continue;
         }
-        res.status(500).json({ error: errorMessage });
+        res.status(500).json({ 
+          error: errorMessage,
+          details: error.response?.data,
+          finalAttempt: true
+        });
         return;
       }
 
-      logError(`Attempt ${attempt} failed: ${errorMessage}`);
       await setTimeout(1000 * attempt);
     }
   }
 };
 
-// Server-side error logging
 function logError(message) {
   console.error(`[${new Date().toISOString()}] ${message}`);
 }

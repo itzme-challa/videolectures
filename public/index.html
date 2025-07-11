@@ -23,6 +23,20 @@
         Load Website
       </button>
     </div>
+    <div class="mb-4">
+      <h2 class="text-lg font-semibold mb-2">Run JavaScript in Console</h2>
+      <textarea
+        id="scriptInput"
+        placeholder="Enter JavaScript code to run in the iframe (e.g., console.log('Hello, World!'))"
+        class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24"
+      ></textarea>
+      <button
+        onclick="runScript()"
+        class="mt-2 bg-green-500 text-white p-2 rounded-md hover:bg-green-600"
+      >
+        Run Script
+      </button>
+    </div>
     <div id="errorMessage" class="text-red-500 mb-4 hidden"></div>
     <div class="flex flex-col md:flex-row gap-4">
       <div class="w-full md:w-2/3">
@@ -41,12 +55,13 @@
       </div>
     </div>
     <div class="mt-4 text-sm text-gray-600">
-      <p><strong>Note:</strong> Some websites may block loading due to security policies (e.g., X-Frame-Options, CSP, or bot detection). Try testing with permissive sites like <a href="#" onclick="urlInput.value='https://example.com';loadWebsite();" class="text-blue-500">https://example.com</a>.</p>
+      <p><strong>Note:</strong> Some websites may block content inspection or script execution due to security policies. Try testing with permissive sites like <a href="#" onclick="urlInput.value='https://example.com';loadWebsite();" class="text-blue-500">https://example.com</a>.</p>
     </div>
   </div>
   <script>
     // Get DOM elements
     const urlInput = document.getElementById('urlInput');
+    const scriptInput = document.getElementById('scriptInput');
     const websiteFrame = document.getElementById('websiteFrame');
     const consoleOutput = document.getElementById('consoleOutput');
     const errorMessage = document.getElementById('errorMessage');
@@ -75,6 +90,12 @@
     function clearError() {
       errorMessage.textContent = '';
       errorMessage.classList.add('hidden');
+    }
+
+    // Function to sanitize script input (basic XSS prevention)
+    function sanitizeScript(script) {
+      // Remove potentially dangerous tags and attributes
+      return script.replace(/<\/?script\b[^>]*>|javascript:/gi, '');
     }
 
     // Function to load the website via proxy
@@ -109,11 +130,11 @@
           body: JSON.stringify({ url: validUrl })
         });
 
-        const data = await response.json();
         if (!response.ok) {
-          throw new Error(data.error || `Proxy request failed: ${response.status} ${response.statusText}`);
+          throw new Error(`Proxy request failed: ${response.statusText}`);
         }
 
+        const data = await response.json();
         if (data.error) {
           throw new Error(data.error);
         }
@@ -122,7 +143,7 @@
         websiteFrame.srcdoc = data.content;
         logToConsole('Website content loaded successfully', 'log');
 
-        // Attempt to inject console interception script
+        // Inject console interception script
         websiteFrame.onload = () => {
           try {
             const iframeWindow = websiteFrame.contentWindow;
@@ -164,7 +185,7 @@
               if (event.data.type === 'console') {
                 logToConsole(event.data.message, event.data.method);
               }
-            }, { once: false });
+            });
 
             logToConsole('Console interception set up successfully', 'log');
           } catch (e) {
@@ -178,10 +199,55 @@
       }
     }
 
+    // Function to run user-provided script in iframe
+    async function runScript() {
+      const script = scriptInput.value.trim();
+      if (!script) {
+        showError('Please enter JavaScript code to run');
+        return;
+      }
+
+      if (!websiteFrame.contentWindow) {
+        showError('No website loaded. Please load a website first.');
+        logToConsole('No website loaded for script execution', 'error');
+        return;
+      }
+
+      clearError();
+      logToConsole('Attempting to run user script', 'log');
+
+      try {
+        const iframeWindow = websiteFrame.contentWindow;
+        const sanitizedScript = sanitizeScript(script);
+
+        // Inject user script into iframe
+        const scriptElement = iframeWindow.document.createElement('script');
+        scriptElement.textContent = `
+          try {
+            ${sanitizedScript}
+          } catch (e) {
+            window.parent.postMessage({ type: 'console', method: 'error', message: 'Script error: ' + e.message }, '*');
+          }
+        `;
+        iframeWindow.document.body.appendChild(scriptElement);
+        logToConsole('Script executed successfully', 'log');
+      } catch (e) {
+        showError(`Failed to run script: ${e.message}`);
+        logToConsole(`Script execution error: ${e.message}`, 'error');
+      }
+    }
+
     // Handle Enter key in URL input
     urlInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
         loadWebsite();
+      }
+    });
+
+    // Handle Ctrl+Enter in script input
+    scriptInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.ctrlKey) {
+        runScript();
       }
     });
 

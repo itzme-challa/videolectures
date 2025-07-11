@@ -47,25 +47,23 @@ module.exports = async (req, res) => {
       let response;
 
       if (useBrowserless) {
-        // Optional: Use Browserless.io for protected sites
-        const browserlessToken = process.env.BROWSERLESS_TOKEN; // Set in Vercel environment variables
+        const browserlessToken = process.env.BROWSERLESS_TOKEN;
         if (!browserlessToken) {
-          throw new Error('Browserless token not configured');
+          throw new Error('Browserless token not configured. Please set BROWSERLESS_TOKEN in Vercel environment variables.');
         }
 
         response = await axios.post(
           `https://chrome.browserless.io/content?token=${browserlessToken}`,
-          { url },
+          { url, stealth: true, blockAds: true },
           {
             headers: { 'Content-Type': 'application/json' },
-            timeout: 30000 // 30-second timeout for Browserless
+            timeout: 30000
           }
         );
-        response.data = response.data.html; // Browserless returns HTML in response.data.html
+        response.data = response.data.html;
       } else {
-        // Standard HTTP fetch with axios
         response = await axios.get(url, {
-          timeout: 10000, // 10-second timeout
+          timeout: 10000,
           headers,
           maxRedirects: 5,
           validateStatus: (status) => status >= 200 && status < 400,
@@ -76,7 +74,7 @@ module.exports = async (req, res) => {
       // Check content length (Vercel free tier limit: 4.5MB)
       const contentLength = response.headers['content-length'] || (response.data?.length || 0);
       if (contentLength > 4.5 * 1024 * 1024) {
-        throw new Error('Response size exceeds Vercel limit (4.5MB)');
+        throw new Error('Response size exceeds Vercel limit (4.5MB). Try a smaller page or upgrade to Vercel Pro.');
       }
 
       res.status(200).json({ content: response.data });
@@ -88,25 +86,23 @@ module.exports = async (req, res) => {
         : `Failed to fetch ${url}: ${error.message}`;
 
       if (attempt === maxRetries) {
-        // Fallback to Browserless on last attempt if not already tried
-        if (!useBrowserless && error.response?.status === 403) {
+        if (!useBrowserless && (error.response?.status === 403 || error.response?.status === 429)) {
           useBrowserless = true;
-          attempt = 0; // Reset attempts for Browserless
-          logError(`Retrying with Browserless due to 403 error: ${errorMessage}`);
+          attempt = 0;
+          logError(`Retrying with Browserless due to ${error.response?.status} error: ${errorMessage}`);
           continue;
         }
         res.status(500).json({ error: errorMessage });
         return;
       }
 
-      // Log error for debugging
       logError(`Attempt ${attempt} failed: ${errorMessage}`);
-      await setTimeout(1000 * attempt); // Exponential backoff
+      await setTimeout(1000 * attempt);
     }
   }
 };
 
-// Basic error logging (replace with a proper logging service in production)
+// Server-side error logging
 function logError(message) {
   console.error(`[${new Date().toISOString()}] ${message}`);
 }

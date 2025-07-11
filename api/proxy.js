@@ -1,12 +1,16 @@
 const axios = require('axios');
 const { setTimeout } = require('timers/promises');
 
-// Domains that typically require Browserless
-const BROWSERLESS_DOMAINS = ['quizardv2.dev-boi.xyz'];
-
 module.exports = async (req, res) => {
   // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const allowedOrigins = ['https://yourdomain.com', 'http://localhost:3000']; // Add your allowed origins
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*'); // fallback
+  }
+
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -28,10 +32,6 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Check if this is a domain that typically requires Browserless
-  let useBrowserless = BROWSERLESS_DOMAINS.some(domain => url.includes(domain));
-  
-  // Browser-like headers to bypass bot detection
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -43,9 +43,9 @@ module.exports = async (req, res) => {
     'Pragma': 'no-cache'
   };
 
-  // Retry logic
   const maxRetries = 3;
   let attempt = 0;
+  let useBrowserless = false;
 
   while (attempt < maxRetries) {
     try {
@@ -57,27 +57,18 @@ module.exports = async (req, res) => {
           throw new Error('Browserless token not configured. Please set BROWSERLESS_TOKEN in Vercel environment variables.');
         }
 
-        logError(`Attempting to fetch via Browserless (attempt ${attempt + 1})`);
-        
         response = await axios.post(
           `https://chrome.browserless.io/content?token=${browserlessToken}`,
-          { 
-            url, 
-            options: {
-              stealth: true,
-              blockAds: true,
-              userAgent: headers['User-Agent'],
-              waitFor: 2000 // wait for 2 seconds to ensure page loads
-            }
-          },
+          { url, stealth: true, blockAds: true },
           {
             headers: { 'Content-Type': 'application/json' },
-            timeout: 20000 // 20 seconds
+            timeout: 30000
           }
         );
+
         response.data = response.data.html;
+
       } else {
-        logError(`Attempting direct fetch (attempt ${attempt + 1})`);
         response = await axios.get(url, {
           timeout: 10000,
           headers,
@@ -87,7 +78,7 @@ module.exports = async (req, res) => {
         });
       }
 
-      // Check content length
+      // Validate response size
       const contentLength = response.headers['content-length'] || (response.data?.length || 0);
       if (contentLength > 4.5 * 1024 * 1024) {
         throw new Error('Response size exceeds Vercel limit (4.5MB). Try a smaller page or upgrade to Vercel Pro.');
@@ -95,34 +86,34 @@ module.exports = async (req, res) => {
 
       res.status(200).json({ content: response.data });
       return;
+
     } catch (error) {
-      attempt++;
+      const status = error.response?.status;
       const errorMessage = error.response
-        ? `Failed to fetch ${url}: ${error.response.status} ${error.response.statusText}`
+        ? `Failed to fetch ${url}: ${status} ${error.response.statusText}`
         : `Failed to fetch ${url}: ${error.message}`;
 
+      // Switch to Browserless immediately on 403 or 429
+      if (!useBrowserless && (status === 403 || status === 429)) {
+        useBrowserless = true;
+        logError(`Switching to Browserless due to ${status} error: ${errorMessage}`);
+        continue; // try again immediately using Browserless
+      }
+
+      attempt++;
       logError(`Attempt ${attempt} failed: ${errorMessage}`);
 
-      if (attempt === maxRetries) {
-        if (!useBrowserless && (error.response?.status === 403 || error.response?.status === 429)) {
-          useBrowserless = true;
-          attempt = 0; // Reset attempts for Browserless
-          logError(`Switching to Browserless due to ${error.response?.status} error`);
-          continue;
-        }
-        res.status(500).json({ 
-          error: errorMessage,
-          details: error.response?.data,
-          finalAttempt: true
-        });
+      if (attempt >= maxRetries) {
+        res.status(500).json({ error: errorMessage });
         return;
       }
 
-      await setTimeout(1000 * attempt);
+      await setTimeout(1000 * attempt); // exponential backoff
     }
   }
 };
 
+// Simple logger
 function logError(message) {
   console.error(`[${new Date().toISOString()}] ${message}`);
 }

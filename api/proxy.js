@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer');
+const fetch = require('node-fetch');
 
 module.exports = async (req, res) => {
   // Set CORS headers
@@ -24,39 +24,20 @@ module.exports = async (req, res) => {
     return;
   }
 
-  let browser;
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    const page = await browser.newPage();
-
-    // Set user agent
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-
-    // Navigate to the URL
-    const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-
-    if (!response.ok()) {
-      let errorMessage = `Failed to fetch ${url}: ${response.status()} ${response.statusText()}`;
-      if (response.status() === 403) {
-        errorMessage += ' (Possible bot detection or access restriction)';
-      } else if (response.status() === 429) {
-        errorMessage += ' (Rate limited by the server)';
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       }
-      throw new Error(errorMessage);
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
     }
 
-    // Get page content
-    const content = await page.content();
-    await browser.close();
-
+    const content = await response.text();
     res.status(200).json({ content });
   } catch (error) {
-    if (browser) await browser.close();
-    res.status(500).json({
-      error: error.message || 'An unexpected error occurred while fetching the website'
-    });
+    res.status(500).json({ error: error.message });
   }
 };

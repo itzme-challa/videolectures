@@ -55,7 +55,7 @@
       </div>
     </div>
     <div class="mt-4 text-sm text-gray-600">
-      <p><strong>Note:</strong> Some websites may block content inspection or script execution due to security policies. Try testing with permissive sites like <a href="#" onclick="urlInput.value='https://example.com';loadWebsite();" class="text-blue-500">https://example.com</a>.</p>
+      <p><strong>Note:</strong> Some websites may block proxy requests due to bot protection (e.g., Cloudflare). Try testing with permissive sites like <a href="#" onclick="urlInput.value='https://example.com';loadWebsite();" class="text-blue-500">https://example.com</a>. Contact support for persistent issues.</p>
     </div>
   </div>
   <script>
@@ -108,7 +108,7 @@
       // Validate URL
       let validUrl = url;
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        validUrl = 'https://' + url; // Default to HTTPS
+        validUrl = 'https://' + url;
       }
       try {
         new URL(validUrl);
